@@ -1,0 +1,46 @@
+{
+  "name": "multicast-ring-tester",
+  "version": "2.2.0",
+  "description": "Multicast stream scanner — SAP discovery, ffprobe metadata, editable channel names, VLC launch",
+  "main": "main.js",
+  "author": "Alpha AV/IT",
+  "license": "MIT",
+  "scripts": {
+    "start":      "electron .",
+    "dist:win":   "electron-builder --win   --publish never",
+    "dist:mac":   "electron-builder --mac   --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
+    "pack":       "electron-builder --dir   --publish never"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron":         "^30.0.0",
+    "electron-builder": "^24.13.0"
+  },
+  "build": {
+    "appId":       "com.alpha.multicast-ring-tester",
+    "productName": "Multicast Ring Tester",
+    "copyright":   "Alpha AV/IT",
+    "files": ["main.js", "preload.js", "index.html"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Multicast Ring Tester"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.utilities"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon":   "assets/icon.png",
+      "category": "Network"
+    }
+  }
+}
