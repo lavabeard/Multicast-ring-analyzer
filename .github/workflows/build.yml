@@ -8,6 +8,26 @@ on:
     branches: [main]
 
 jobs:
+  # ── Linux Docker build + smoke test (runs on every push) ────────────────────
+  test-linux-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and smoke-test (Docker)
+        run: |
+          docker build -f Dockerfile.linux-test -t mcast-linux-test .
+          docker run --rm --name mcast-test mcast-linux-test
+      - name: Extract artifacts from image
+        run: |
+          docker create --name mcast-artifacts mcast-linux-test
+          docker cp mcast-artifacts:/artifacts ./docker-dist
+          docker rm mcast-artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-docker-dist
+          path: docker-dist/
+
+  # ── macOS native build ───────────────────────────────────────────────────────
   build-mac:
     runs-on: macos-latest
     steps:
@@ -25,6 +45,7 @@ jobs:
           name: mac-dist
           path: dist/*.dmg
 
+  # ── Windows native build ─────────────────────────────────────────────────────
   build-win:
     runs-on: windows-latest
     steps:
@@ -42,6 +63,7 @@ jobs:
           name: win-dist
           path: dist/*.exe
 
+  # ── Linux native build (parallel to Docker, for deb/rpm variants) ────────────
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -49,6 +71,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Install Electron build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libnss3 libatk1.0-0 \
+            libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+            libgbm1 libasound2 libpango-1.0-0 libcairo2
       - run: npm install
       - run: npm run dist:linux
       - uses: actions/upload-artifact@v4
@@ -58,9 +88,10 @@ jobs:
             dist/*.AppImage
             dist/*.deb
 
+  # ── Release (tag pushes only) ────────────────────────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-mac, build-win, build-linux]
+    needs: [test-linux-docker, build-mac, build-win, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write

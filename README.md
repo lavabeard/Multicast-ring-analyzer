@@ -150,3 +150,62 @@ The AI can parse any format: channel spreadsheets, encoder configs, free-form no
 ## License
 
 MIT — Alpha AV/IT
+
+---
+
+## Upgrading
+
+Upgrade scripts back up your existing installation **and** your Electron user data (localStorage, window state) before installing the new version.
+
+### Linux / macOS
+
+```bash
+git clone https://github.com/lavabeard/Multicast-ring-analyzer.git
+cd Multicast-ring-analyzer
+./scripts/upgrade.sh
+```
+
+Flags:
+
+| Flag | Meaning |
+|---|---|
+| _(none)_ | Pull latest git, build, back up old install, install new |
+| `--from-dist` | Skip git pull and build — install from an existing `dist/` folder |
+| `--dry-run` | Print every action without making any changes |
+
+Backups are saved to `~/.local/share/multicast-ring-tester-backups/<timestamp>/` (Linux) or `~/Library/Application Support/` equivalent (macOS).
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/lavabeard/Multicast-ring-analyzer.git
+cd Multicast-ring-analyzer
+.\scripts\upgrade.ps1
+```
+
+Same flags: `-FromDist`, `-DryRun`.  
+Backups land in `%LOCALAPPDATA%\multicast-ring-tester-backups\<timestamp>\`.
+
+---
+
+## Linux Testing (Docker)
+
+A self-contained Docker build runs a clean Ubuntu 22.04 environment, installs all Electron dependencies, builds the Linux AppImage + deb, and smoke-tests that the artifacts are valid and ffprobe is reachable.
+
+**Build and test:**
+```bash
+docker build -f Dockerfile.linux-test -t mcast-linux-test .
+docker run --rm mcast-linux-test
+```
+
+**Copy artifacts out:**
+```bash
+docker create --name mcast-artifacts mcast-linux-test
+docker cp mcast-artifacts:/artifacts ./docker-dist
+docker rm mcast-artifacts
+ls docker-dist/
+# Multicast Ring Tester-x.x.x.AppImage
+# multicast-ring-tester_x.x.x_amd64.deb
+```
+
+This is also what CI runs on every push to `main` — see `.github/workflows/build.yml`.
