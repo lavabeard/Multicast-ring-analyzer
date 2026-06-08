@@ -320,13 +320,138 @@ DESKTOP
   info "Desktop entry created"
 fi
 
+# ── create app folder and README ───────────────────────────────────────────────
+APP_FOLDER="$HOME/$APP_ID"
+README_PATH="$APP_FOLDER/README.txt"
+
+run mkdir -p "$APP_FOLDER"
+
+if ! $DRY_RUN; then
+  cat > "$README_PATH" << README
+╔══════════════════════════════════════════════════════════════════╗
+║           Multicast Ring Analyzer — Quick Start Guide           ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Installed version : $VERSION
+Install location  : $APPIMAGE_PATH
+App folder        : $APP_FOLDER
+User data         : $USER_DATA
+
+──────────────────────────────────────────────────────────────────
+ LAUNCHING THE APP
+──────────────────────────────────────────────────────────────────
+
+  From terminal:
+    $APPIMAGE_PATH
+
+  From your applications menu:
+    Search for "Multicast Ring Analyzer"
+
+──────────────────────────────────────────────────────────────────
+ FIRST TIME SETUP
+──────────────────────────────────────────────────────────────────
+
+  1. Make sure your machine is on the same VLAN as the multicast
+     traffic you want to monitor.
+
+  2. The app needs ffprobe (ffmpeg) to probe streams and VLC for
+     playback. Both are checked and installed by the install script.
+     If either badge shows a warning in the top-right corner of the
+     app, install them manually:
+
+       sudo apt install ffmpeg vlc
+
+  3. On first launch you may need to allow the AppImage to run:
+
+       chmod +x "$APPIMAGE_PATH"
+
+──────────────────────────────────────────────────────────────────
+ USING THE APP
+──────────────────────────────────────────────────────────────────
+
+  RANGE SCAN TAB
+  • Set IP Prefix to the first three octets of your multicast range
+    e.g.  239 . 252 . 10 . x
+  • Set Start / End for the last octet range  (e.g. 1 – 50)
+  • Set Port to your stream port  (default 4444)
+  • Choose your NIC if you have multiple network interfaces
+  • Click Scan Network — live streams appear in real time
+  • Each card shows codec, resolution, fps, and bitrate from ffprobe
+
+  SAP LISTEN TAB
+  • Click Start Listening to join 224.2.127.254:9875
+  • Encoders that broadcast SAP (Haivision, Extron, vMix, OBS)
+    appear automatically and are probed
+
+  CHANNEL NAMES
+  • Click any channel name field on a card to label it
+  • Names are saved automatically and survive restarts
+  • Use Import Names to paste a spreadsheet or list and let
+    AI (Claude) match names to IPs automatically
+
+  PLAYBACK
+  • Click Launch VLC on any card to open that stream in VLC
+  • Click Open All in VLC to load all live streams as a playlist
+    (use arrow keys in VLC to step through channels)
+  • Click Export M3U to save a playlist file
+
+  AUTO-ROTATE
+  • Click Auto-Rotate to cycle through all live streams in VLC
+  • Set Dwell time (seconds per channel) in the rotate bar
+
+──────────────────────────────────────────────────────────────────
+ UPGRADING
+──────────────────────────────────────────────────────────────────
+
+  Re-run the install script at any time — it backs up your current
+  install and user data before installing the new version:
+
+    curl -fsSL https://raw.githubusercontent.com/lavabeard/Multicast-ring-analyzer/main/install.sh | bash
+
+──────────────────────────────────────────────────────────────────
+ UNINSTALLING
+──────────────────────────────────────────────────────────────────
+
+  Keep your channel names and settings:
+    bash install.sh --uninstall
+
+  Remove everything including user data:
+    bash install.sh --purge
+
+──────────────────────────────────────────────────────────────────
+ NETWORK NOTES
+──────────────────────────────────────────────────────────────────
+
+  • Machine must be on the same VLAN as multicast traffic
+  • Stream URLs use udp://@IP:PORT  (the @ is required)
+  • Use the NIC selector if multicast is on a specific interface
+  • SAP listener needs UDP port 9875 open on the selected interface
+  • Increase probe timeout for slow or intermittent streams
+
+──────────────────────────────────────────────────────────────────
+ SUPPORT / SOURCE
+──────────────────────────────────────────────────────────────────
+
+  GitHub : https://github.com/lavabeard/Multicast-ring-analyzer
+  Issues : https://github.com/lavabeard/Multicast-ring-analyzer/issues
+
+README
+  info "README written → $README_PATH"
+else
+  dry "Write $README_PATH"
+fi
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DONE
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
 echo -e "${BOLD}${GREEN}  ✔ $APP_NAME $VERSION installed successfully${RESET}"
 echo ""
-echo "  Launch:  $APPIMAGE_PATH"
-echo "  Or find it in your applications menu"
-[[ -n "$BACKUP_DIR" ]] && echo "  Backup:  $BACKUP_DIR"
+echo -e "  ${BOLD}Launch:${RESET}    $APPIMAGE_PATH"
+echo -e "  ${BOLD}App menu:${RESET}  Search 'Multicast Ring Analyzer'"
+echo -e "  ${BOLD}README:${RESET}    $README_PATH"
+[[ -n "$BACKUP_DIR" ]] && echo -e "  ${BOLD}Backup:${RESET}    $BACKUP_DIR"
+echo ""
+echo -e "  ${CYAN}Quick start guide saved to $README_PATH${RESET}"
+echo -e "  ${CYAN}Run:  cat \"$README_PATH\"${RESET}"
 echo ""
