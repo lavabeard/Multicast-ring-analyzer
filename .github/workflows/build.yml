@@ -46,15 +46,16 @@ jobs:
             dist/*.AppImage
             dist/*.deb
 
-  # ── Linux arm64 build (Parallels on Apple Silicon, Raspberry Pi, etc.) ───────
+  # ── Linux arm64 cross-compile (Parallels on Apple Silicon, Raspberry Pi, etc.)
+  # Runs on the standard x64 runner — electron-builder cross-compiles arm64
   build-linux-arm64:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-node@v4.4.0
         with:
           node-version: '24'
-      - name: Install Electron build dependencies
+      - name: Install Electron build + cross-compile dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -68,21 +69,22 @@ jobs:
             libasound2t64 \
             libpango-1.0-0 libcairo2 \
             libnspr4 libx11-xcb1 libxcb-dri3-0 \
-            ffmpeg
+            ffmpeg \
+            rpm fakeroot
       - run: npm ci
-      - name: Build arm64
+      - name: Build arm64 (cross-compile)
         run: npx electron-builder --linux --arm64 --publish never
       - name: Smoke test
         run: |
-          file dist/*.AppImage | head -3
-          dpkg-deb --info dist/*.deb | head -5
+          file dist/*arm64*.AppImage | head -3
+          dpkg-deb --info dist/*arm64*.deb | head -5
           echo "Smoke test passed."
       - uses: actions/upload-artifact@v4
         with:
           name: linux-arm64
           path: |
-            dist/*.AppImage
-            dist/*.deb
+            dist/*arm64*.AppImage
+            dist/*arm64*.deb
 
   # ── Release (tag pushes only) ────────────────────────────────────────────────
   release:
