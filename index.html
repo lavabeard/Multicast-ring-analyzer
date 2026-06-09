@@ -127,6 +127,7 @@ select{color:var(--t2);cursor:pointer}
 .card.probing::before{background:var(--blue);animation:ppulse .7s ease-in-out infinite}
 .card.sap-card.live::before{background:var(--cyan)}
 .card.net-card.live::before{background:var(--purple)}
+.card.device{border-color:rgba(167,139,250,.35)}.card.device::before{background:var(--purple);opacity:.7}
 @keyframes ppulse{0%,100%{opacity:.3}50%{opacity:1}}
 .card-inner{padding:12px 14px}
 .ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
@@ -157,9 +158,10 @@ select{color:var(--t2);cursor:pointer}
 .sdot.live{background:var(--green);box-shadow:0 0 5px var(--green);animation:blink 1.4s ease-in-out infinite}
 .sdot.active{background:var(--amber);box-shadow:0 0 4px var(--amber)}
 .sdot.nosig{background:var(--red)}.sdot.probing{background:var(--blue);animation:blink .7s ease-in-out infinite}
+.sdot.device{background:var(--purple);box-shadow:0 0 4px var(--purple)}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 .slabel{font-family:var(--mono);font-size:9px;color:var(--t3)}
-.slabel.live{color:var(--green)}.slabel.active{color:var(--amber)}.slabel.nosig{color:var(--red)}.slabel.probing{color:var(--blue)}
+.slabel.live{color:var(--green)}.slabel.active{color:var(--amber)}.slabel.nosig{color:var(--red)}.slabel.probing{color:var(--blue)}.slabel.device{color:var(--purple)}
 
 /* channel name field */
 .ch-name-wrap{margin-bottom:6px}
@@ -193,6 +195,7 @@ select{color:var(--t2);cursor:pointer}
 .spin{width:10px;height:10px;border:1.5px solid transparent;border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .meta-nosig{margin-top:9px;padding-top:8px;border-top:1px solid var(--bd);font-family:var(--mono);font-size:10px;color:var(--red)}
+.meta-device{margin-top:9px;padding-top:8px;border-top:1px solid var(--bd);font-family:var(--mono);font-size:9px;color:var(--purple);line-height:1.5}
 
 /* actions */
 .ca{display:flex;gap:5px;margin-top:9px}
@@ -336,7 +339,6 @@ select{color:var(--t2);cursor:pointer}
         <label class="proto-check"><input type="checkbox" id="pRtsp" checked><span>RTSP</span></label>
         <label class="proto-check"><input type="checkbox" id="pRtmp" checked><span>RTMP</span></label>
         <label class="proto-check"><input type="checkbox" id="pHls"  checked><span>HLS</span></label>
-        <label class="proto-check"><input type="checkbox" id="pRtp"  checked><span>RTP</span></label>
         <label class="proto-check"><input type="checkbox" id="pUdp"  checked><span>UDP</span></label>
         <label class="proto-check"><input type="checkbox" id="pNdi"  checked><span>mDNS/NDI</span></label>
         <label class="proto-check"><input type="checkbox" id="pDante" checked><span>Dante/AES67</span></label>
@@ -461,7 +463,9 @@ select{color:var(--t2);cursor:pointer}
         <em>Scan</em>  — TCP-checks each IP for RTSP, RTMP, HLS then probes with ffprobe<br>
         <em>mDNS Listen</em>  — discovers NDI, Dante, AES67, Ravenna via multicast DNS<br><br>
         Enter your subnet prefix (e.g. <em>192.168.1</em>) and select protocols.<br>
-        Results appear as streams are found — no need to wait for the scan to finish.
+        Results appear as streams are found — no need to wait for the scan to finish.<br><br>
+        NDI / Dante / AES67 show as <em>discovered devices</em> — they are not URL<br>
+        streams, so they need their own receiver (NDI Tools, Dante Controller, etc.).
       </div>
     </div>
     <div class="grid" id="netGrid" style="display:none"></div>
@@ -722,7 +726,6 @@ async function toggleNetScan() {
   if (document.getElementById('pRtsp').checked) protocols.push('rtsp');
   if (document.getElementById('pRtmp').checked) protocols.push('rtmp');
   if (document.getElementById('pHls').checked)  protocols.push('hls');
-  if (document.getElementById('pRtp').checked)  protocols.push('rtp');
   if (document.getElementById('pUdp').checked)  protocols.push('udp');
 
   if (!protocols.length) { log('warn','Select at least one protocol'); return; }
@@ -793,10 +796,17 @@ function stopMdns() {
 function onMdnsAnnounce(d) {
   const key = 'mdns:' + d.protocol + ':' + d.ip + ':' + d.port;
   if (netStreams.has(key)) return;
-  log('info', 'mDNS: ' + d.protocol.toUpperCase() + ' "' + d.name + '" → ' + d.url);
-  upsertNetStream({ key, ip: d.ip, port: d.port, url: d.url, protocol: d.protocol,
-    source: 'mdns', result: { probing: true }, seq: netStreamSeq++, mdnsName: d.name });
-  // Auto-probe
+  log('info', 'mDNS: ' + d.protocol.toUpperCase() + ' "' + d.name + '" → ' + (d.host || d.ip) + ':' + d.port);
+  // Discovered devices (NDI/Dante/AES67/Ravenna) are NOT ffprobe/VLC-playable
+  // URL streams — record them as discovered endpoints, never auto-probe.
+  const isDevice = d.kind === 'device';
+  upsertNetStream({
+    key, ip: d.ip, port: d.port, url: d.url, protocol: d.protocol,
+    source: 'mdns', kind: isDevice ? 'device' : 'stream',
+    result: isDevice ? { device: true } : { probing: true },
+    seq: netStreamSeq++, mdnsName: d.name, host: d.host || null,
+  });
+  if (isDevice) return; // no probe — needs SDK/AoIP receiver, not ffprobe
   window.api.probeStream(d.url).then(result => {
     const s = netStreams.get(key);
     if (s) { s.result = result; renderNetCard(s); }
@@ -1025,20 +1035,57 @@ function renderNetCard(s) {
   if (!card) { card = document.createElement('div'); card.id = cid; document.getElementById('netGrid').appendChild(card); }
 
   const r = s.result || {};
+  const isDevice = s.kind === 'device' || r.device;
   const isLive = r.ok, isNosig = r.error && r.error !== 'not_found', isProbing = r.probing;
-  const stCls = isLive ? 'live' : isNosig ? 'nosig' : isProbing ? 'probing' : '';
+  const stCls = isDevice ? 'device' : isLive ? 'live' : isNosig ? 'nosig' : isProbing ? 'probing' : '';
   let dotCls = '', lblCls = '', lblTxt = 'Idle';
-  if (isLive)    { dotCls = 'live';    lblCls = 'live';    lblTxt = 'LIVE'; }
+  if (isDevice)      { dotCls = 'device';  lblCls = 'device';  lblTxt = 'DISCOVERED'; }
+  else if (isLive)   { dotCls = 'live';    lblCls = 'live';    lblTxt = 'LIVE'; }
   else if (isNosig)  { dotCls = 'nosig';   lblCls = 'nosig';   lblTxt = 'NO SIG'; }
   else if (isProbing){ dotCls = 'probing'; lblCls = 'probing'; lblTxt = 'PROBING'; }
 
   const meta = isLive ? parseProbe(r.raw) : null;
   const proto = (s.protocol || 'udp').toLowerCase();
   const nk = s.ip + ':' + s.port;
-  const name = nameStore[nk] || s.mdnsName || '';
   const hasSuggested = !nameStore[nk] && meta && meta.suggestedName;
   const displayName = nameStore[nk] || (hasSuggested ? meta.suggestedName : s.mdnsName || '');
   const nameCls = 'ch-name' + (nameStore[nk] ? '' : (hasSuggested || s.mdnsName ? ' empty meta-suggested' : ' empty'));
+
+  // Device endpoints (NDI / Dante / AES67) aren't URL streams — show what they
+  // need rather than fake metadata or a non-working VLC launch.
+  // What software can actually receive each device type (guidance only — the
+  // app does not bundle or install any of these).
+  const VIEWERS = {
+    ndi:     'NDI Tools (Win/Mac) or OBS + DistroAV',
+    dante:   'Dante Controller / a Dante-enabled device',
+    aes67:   'an AES67 receiver',
+    ravenna: 'a Ravenna/AES67 receiver',
+  };
+
+  let body, actions;
+  if (isDevice) {
+    body =
+      '<div class="ch-url" style="font-size:11px;color:var(--text)">' + esc(s.url) + '</div>' +
+      (s.host ? '<div class="meta-suggested">host: ' + esc(s.host) + '  ·  ' + esc(s.ip) + ':' + s.port + '</div>' : '') +
+      '<div class="meta-device">◆ Discovered ' + proto.toUpperCase() + ' device — not a URL stream.<br>' +
+        'View with ' + esc(VIEWERS[proto] || 'a dedicated receiver') + '.</div>';
+    actions =
+      '<button class="cab" onclick="copyOne(\'' + esc(s.url) + '\')">' +
+        '<svg viewBox="0 0 9 9" fill="none"><rect x=".5" y="2.5" width="5" height="6" rx=".6" stroke="currentColor" stroke-width="1.1"/><path d="M2.5 2.5V2a.6.6 0 0 1 .6-.6h4.3a.6.6 0 0 1 .6.6v5a.6.6 0 0 1-.6.6H7" stroke="currentColor" stroke-width="1.1"/></svg>Copy</button>';
+  } else {
+    body =
+      '<div class="ch-url" style="font-size:11px;color:var(--text)">' + esc(s.url) + '</div>' +
+      (isProbing ? '<div class="meta-probing"><div class="spin"></div><span>Probing with ffprobe…</span></div>' : '') +
+      (isNosig && !isProbing ? '<div class="meta-nosig">✕ No signal' + (r.error === 'timeout' ? ' · timed out' : '') + ' </div>' : '') +
+      (meta ? renderMeta(meta) : '');
+    actions =
+      '<button class="cab launch" onclick="launchOne(\'' + esc(s.url) + '\')">' +
+        '<svg viewBox="0 0 9 9" fill="none"><polygon points="0.5,0.5 8.5,4.5 0.5,8.5" fill="currentColor"/></svg>Launch VLC</button>' +
+      '<button class="cab" onclick="reProbeNet(\'' + esc(s.key) + '\')">' +
+        '<svg viewBox="0 0 9 9" fill="none"><path d="M7.5 4.5A3 3 0 1 1 4.5 1.5M7.5 1.5v3H4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Re-probe</button>' +
+      '<button class="cab" onclick="copyOne(\'' + esc(s.url) + '\')">' +
+        '<svg viewBox="0 0 9 9" fill="none"><rect x=".5" y="2.5" width="5" height="6" rx=".6" stroke="currentColor" stroke-width="1.1"/><path d="M2.5 2.5V2a.6.6 0 0 1 .6-.6h4.3a.6.6 0 0 1 .6.6v5a.6.6 0 0 1-.6.6H7" stroke="currentColor" stroke-width="1.1"/></svg>Copy</button>';
+  }
 
   card.className = 'card net-card ' + stCls;
   card.innerHTML =
@@ -1065,24 +1112,8 @@ function renderNetCard(s) {
         esc(displayName || 'Add channel name…') +
       '</div>' +
     '</div>' +
-    '<div class="ch-url" style="font-size:11px;color:var(--text)">' + esc(s.url) + '</div>' +
-    (isProbing ? '<div class="meta-probing"><div class="spin"></div><span>Probing with ffprobe…</span></div>' : '') +
-    (isNosig && !isProbing ? '<div class="meta-nosig">✕ No signal' + (r.error === 'timeout' ? ' · timed out' : '') + ' </div>' : '') +
-    (meta ? renderMeta(meta) : '') +
-    '<div class="ca">' +
-      '<button class="cab launch" onclick="launchOne(\'' + esc(s.url) + '\')">' +
-        '<svg viewBox="0 0 9 9" fill="none"><polygon points="0.5,0.5 8.5,4.5 0.5,8.5" fill="currentColor"/></svg>' +
-        'Launch VLC' +
-      '</button>' +
-      '<button class="cab" onclick="reProbeNet(\'' + esc(s.key) + '\')">' +
-        '<svg viewBox="0 0 9 9" fill="none"><path d="M7.5 4.5A3 3 0 1 1 4.5 1.5M7.5 1.5v3H4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-        'Re-probe' +
-      '</button>' +
-      '<button class="cab" onclick="copyOne(\'' + esc(s.url) + '\')">' +
-        '<svg viewBox="0 0 9 9" fill="none"><rect x=".5" y="2.5" width="5" height="6" rx=".6" stroke="currentColor" stroke-width="1.1"/><path d="M2.5 2.5V2a.6.6 0 0 1 .6-.6h4.3a.6.6 0 0 1 .6.6v5a.6.6 0 0 1-.6.6H7" stroke="currentColor" stroke-width="1.1"/></svg>' +
-        'Copy' +
-      '</button>' +
-    '</div>' +
+    body +
+    '<div class="ca">' + actions + '</div>' +
     '</div>';
 }
 

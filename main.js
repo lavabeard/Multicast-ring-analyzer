@@ -233,14 +233,10 @@ async function runNetScan(event, params) {
         }
       }
 
-      if (protocols.includes('rtp')) {
-        for (const port of [5004, 5005]) {
-          if (netScanCtx.cancel) break;
-          const url = `rtp://@${ip}:${port}`;
-          const result = await probeUrl(url, timeoutMs);
-          if (result.ok) { results.push({ ip, port, url, protocol: 'rtp', result }); found++; }
-        }
-      }
+      // NOTE: RTP is intentionally NOT scanned by IP here. `rtp://@ip:port`
+      // makes ffmpeg bind LOCALLY and listen for inbound packets — it never
+      // contacts the target IP, so a "hit" is just ambient RTP traffic stamped
+      // with a meaningless address. Unicast RTP is discovered via SAP/SDP only.
 
       if (protocols.includes('udp')) {
         if (!netScanCtx.cancel) {
@@ -275,11 +271,13 @@ ipcMain.handle('stop-net-scan', () => { netScanCtx.cancel = true; return { ok: t
 // ── mDNS Listener ─────────────────────────────────────────────────────────────
 let mdnsSock = null;
 
+// kind:'device' means these are discovered endpoints, NOT directly probeable/playable
+// URL streams. NDI needs the NDI SDK / a monitor; Dante/AES67/Ravenna need an AoIP receiver.
 const MDNS_SERVICE_MAP = {
-  '_ndi._tcp.local':      { protocol: 'ndi',     urlFn: (ip, port) => `ndi://${ip}:${port}` },
-  '_netaudio._tcp.local': { protocol: 'dante',   urlFn: (ip, port) => `rtp://@${ip}:${port}` },
-  '_aes67._udp.local':    { protocol: 'aes67',   urlFn: (ip, port) => `rtp://@${ip}:${port}` },
-  '_ravenna._tcp.local':  { protocol: 'ravenna', urlFn: (ip, port) => `rtp://@${ip}:${port}` },
+  '_ndi._tcp.local':      { protocol: 'ndi',     kind: 'device', urlFn: (ip, port, inst) => `ndi://${inst || ip}` },
+  '_netaudio._tcp.local': { protocol: 'dante',   kind: 'device', urlFn: (ip, port) => `aes67://${ip}:${port}` },
+  '_aes67._udp.local':    { protocol: 'aes67',   kind: 'device', urlFn: (ip, port) => `aes67://${ip}:${port}` },
+  '_ravenna._tcp.local':  { protocol: 'ravenna', kind: 'device', urlFn: (ip, port) => `aes67://${ip}:${port}` },
 };
 
 function parseDnsName(buf, offset) {
@@ -432,13 +430,19 @@ ipcMain.handle('start-mdns', (event) => {
         // r.target is the service instance name
         const instanceName = r.target;
         const srv = srvMap.get(instanceName);
-        const port = srv ? srv.port : (info.protocol === 'ndi' ? 5960 : 5004);
-        const target = srv ? srv.target : null;
+        // Require a correlated SRV record so we have a real host+port, not a
+        // guess based on whichever device happened to send the mDNS packet.
+        // Without it we'd attribute the source to the wrong host with a fake port.
+        if (!srv || !srv.port) continue;
+        const target = srv.target;
         const ip = (target && aMap.get(target)) || rinfo.address;
-        const url = info.urlFn(ip, port);
+        const instLabel = instanceName.split('.')[0];
+        const url = info.urlFn(ip, srv.port, instLabel);
         send('mdns-announce', {
-          ip, port, protocol: info.protocol,
-          name: instanceName.split('.')[0],
+          ip, port: srv.port, protocol: info.protocol,
+          kind: info.kind || 'device',
+          host: target || null,
+          name: instLabel,
           url,
         });
       }
