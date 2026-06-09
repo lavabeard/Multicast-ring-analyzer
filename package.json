@@ -1,7 +1,7 @@
 {
   "name": "multicast-ring-analyzer",
-  "version": "2.2.0",
-  "description": "Multicast stream scanner — SAP discovery, ffprobe metadata, editable channel names, VLC launch",
+  "version": "2.3.0",
+  "description": "Multicast & network stream scanner — range scan, SAP/mDNS discovery, RTSP/RTMP/HLS/RTP/NDI/Dante, ffprobe metadata with closed-caption detection, VLC launch",
   "main": "main.js",
   "author": {
     "name": "Alpha AV/IT",
