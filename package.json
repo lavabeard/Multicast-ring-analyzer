@@ -3,7 +3,10 @@
   "version": "2.2.0",
   "description": "Multicast stream scanner — SAP discovery, ffprobe metadata, editable channel names, VLC launch",
   "main": "main.js",
-  "author": "Alpha AV/IT",
+  "author": {
+    "name": "Alpha AV/IT",
+    "email": "moultoje@gmail.com"
+  },
   "license": "MIT",
   "scripts": {
     "start":      "electron .",
