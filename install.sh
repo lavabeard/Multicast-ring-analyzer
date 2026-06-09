@@ -212,7 +212,35 @@ APPIMAGE_URL="$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep '\.A
 DEB_URL="$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep '\.deb' | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
 
 if [[ -z "$VERSION" ]]; then
-  error "Could not fetch release info from GitHub. Check your internet connection or visit: https://github.com/$REPO/releases"
+  echo ""
+  echo -e "${RED}  ✘ No release found on GitHub yet.${RESET}"
+  echo ""
+  echo "  This usually means one of:"
+  echo "    • The build is still running  (takes ~5 minutes after a tag is pushed)"
+  echo "    • The build failed            (check Actions tab on GitHub)"
+  echo ""
+  echo "  Check build status : https://github.com/$REPO/actions"
+  echo "  Releases page      : https://github.com/$REPO/releases"
+  echo ""
+  echo "  ── Install from source instead ──────────────────────────────────"
+  echo "  git clone git@github.com:$REPO.git"
+  echo "  cd $(basename $REPO)"
+  echo "  npm install && npm start"
+  echo ""
+  exit 1
+fi
+
+if [[ -z "$APPIMAGE_URL" && -z "$DEB_URL" ]]; then
+  echo ""
+  echo -e "${RED}  ✘ Release $VERSION exists but has no downloadable files attached yet.${RESET}"
+  echo ""
+  echo "  The build may still be in progress. Check:"
+  echo "  https://github.com/$REPO/actions"
+  echo ""
+  echo "  Try again in a few minutes, or install from source:"
+  echo "  git clone git@github.com:$REPO.git && cd $(basename $REPO) && npm install && npm start"
+  echo ""
+  exit 1
 fi
 
 info "Latest version : $VERSION"
@@ -295,8 +323,6 @@ elif [[ -n "$DEB_URL" ]] && command -v dpkg &>/dev/null; then
   run rm -f "$TMP_FILE"
   info ".deb installed"
 
-else
-  error "No AppImage or .deb found in release $VERSION. Visit: https://github.com/$REPO/releases"
 fi
 
 # ── desktop entry ──────────────────────────────────────────────────────────────
