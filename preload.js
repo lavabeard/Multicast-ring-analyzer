@@ -3,7 +3,7 @@ contextBridge.exposeInMainWorld('api', {
   // Basic
   getEnv:        ()        => ipcRenderer.invoke('get-env'),
   probeStream:   (url)     => ipcRenderer.invoke('probe-stream', url),
-  launchVlc:     (url)     => ipcRenderer.invoke('launch-vlc', url),
+  launchVlc:     (arg)     => ipcRenderer.invoke('launch-vlc', arg),
   saveM3u:       (c, n)    => ipcRenderer.invoke('save-m3u', { content: c, defaultName: n }),
 
   // Range scan

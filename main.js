@@ -474,8 +474,26 @@ ipcMain.handle('stop-mdns', () => {
 });
 
 // ── Misc IPC ──────────────────────────────────────────────────────────────────
-ipcMain.handle('launch-vlc', (_e, url) => {
-  try { const p = spawn(findVlc(), [url], { detached: true, stdio: 'ignore' }); p.unref(); return { ok: true }; }
+// Accepts either a bare url string (legacy) or { url, miface } where miface is
+// the network interface NAME (e.g. "eth0"). For multicast we bind VLC's join to
+// that NIC via --miface, and strip the ffmpeg-only ?localaddr= param VLC can't parse.
+ipcMain.handle('launch-vlc', (_e, arg) => {
+  let url = typeof arg === 'string' ? arg : (arg && arg.url) || '';
+  const miface = (arg && typeof arg === 'object') ? arg.miface : null;
+  if (!url) return { error: 'no_url' };
+
+  // Remove ffmpeg-specific query params VLC doesn't understand (localaddr, etc.)
+  url = url.replace(/[?&](localaddr|fifo_size|overrun_nonfatal|pkt_size)=[^&]*/gi, '')
+           .replace(/\?&/, '?').replace(/[?&]$/, '');
+
+  const isMulticast = /^(udp|rtp):\/\/@/i.test(url);
+  const args = [];
+  // --miface (VLC 3.x) selects the multicast interface by name. Only meaningful
+  // for multicast joins; harmless to omit otherwise.
+  if (miface && isMulticast) args.push('--miface=' + miface);
+  args.push(url);
+
+  try { const p = spawn(findVlc(), args, { detached: true, stdio: 'ignore' }); p.unref(); return { ok: true, args }; }
   catch (e) { return { error: e.message }; }
 });
 

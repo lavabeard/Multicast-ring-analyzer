@@ -543,6 +543,9 @@ let rotIdx      = 0;
 let rotTimer    = null;
 let rotList     = [];
 let env         = {};
+let scanIface   = '';   // NIC addr captured at range-scan start
+let sapIface    = '';   // NIC addr captured at SAP-listen start
+let netIface    = '';   // NIC addr captured at net-scan start
 
 const NAME_KEY   = 'mcast_names_v2';
 const APIKEY_KEY = 'mcast_apikey';
@@ -579,7 +582,10 @@ function bindEvents() {
   window.api.onMdnsError(d => { log('err', 'mDNS: ' + d.message); stopMdns(); });
 }
 
+let nicNameByAddr = {};   // "192.168.1.50" → "eth0", for VLC --miface
 function populateNics(nics) {
+  nicNameByAddr = {};
+  (nics||[]).forEach(n => { nicNameByAddr[n.address] = n.name; });
   ['rNic','sNic','nNic'].forEach(id => {
     const sel = document.getElementById(id);
     (nics||[]).forEach(n => {
@@ -589,6 +595,13 @@ function populateNics(nics) {
       sel.appendChild(o);
     });
   });
+}
+
+// Map a NIC IP address (what the dropdowns store) to the interface NAME that
+// VLC's --miface option expects. Returns null if unknown / Auto.
+function mifaceFor(ifaceAddr) {
+  if (!ifaceAddr) return null;
+  return nicNameByAddr[ifaceAddr] || null;
 }
 
 function updateBadges() {
@@ -648,8 +661,9 @@ async function toggleScan() {
   setStatus(true,'Scanning '+prefix+'.'+start+'–'+end+':'+port);
   log('info','Scan: '+prefix+'.'+start+' → '+prefix+'.'+end+':'+port+
     ' · '+(end-start+1)+' addrs · '+n('rConc')+' concurrent · '+n('rTimeout')+'s timeout');
+  scanIface = v('rNic');
   try {
-    await window.api.startScan({prefix,start,end,port,iface:v('rNic'),concurrency:n('rConc'),probeSecs:n('rTimeout')});
+    await window.api.startScan({prefix,start,end,port,iface:scanIface,concurrency:n('rConc'),probeSecs:n('rTimeout')});
   } catch { onScanDone({total:0,completed:0,found:0,cancelled:true}); }
 }
 
@@ -661,7 +675,7 @@ function onScanResult(d) {
   document.getElementById('progFill').style.width=pct+'%';
   document.getElementById('progStats').textContent=progress.completed+' / '+progress.total+' ('+pct+'%)';
   document.getElementById('progFound').textContent=progress.found?'● '+progress.found+' live':'';
-  if (result.ok) upsertStream({key:ip+':'+port,ip,port,url,source:'scan',result,seq:streamSeq++});
+  if (result.ok) upsertStream({key:ip+':'+port,ip,port,url,source:'scan',result,seq:streamSeq++,iface:scanIface});
   else if (result.error==='not_found'&&!window._ffWarn) {
     window._ffWarn=true;
     log('warn','ffprobe not found — install ffmpeg and ensure it is in PATH');
@@ -686,8 +700,9 @@ async function toggleSap() {
   document.getElementById('sapBtn').textContent='■ Stop Listening';
   document.getElementById('sapHint').style.display='block';
   setStatus(true,'SAP listener active…');
-  log('info','Starting SAP listener'+(v('sNic')?' on '+v('sNic'):''));
-  try { await window.api.startSap(v('sNic')||null); } catch { stopSap(); }
+  sapIface = v('sNic');
+  log('info','Starting SAP listener'+(sapIface?' on '+sapIface:''));
+  try { await window.api.startSap(sapIface||null); } catch { stopSap(); }
 }
 
 function stopSap() {
@@ -707,10 +722,10 @@ async function onSapAnnounce(d) {
   if (streams.has(key)) return;
   const nk=d.address+':'+d.port;
   if (d.name && !nameStore[nk]) { nameStore[nk]=d.name; saveNames(); }
-  upsertStream({key,ip:d.address,port:d.port,url,source:'sap',result:{probing:true},seq:streamSeq++});
+  upsertStream({key,ip:d.address,port:d.port,url,source:'sap',result:{probing:true},seq:streamSeq++,iface:sapIface});
   let result;
   try { result=await window.api.probeStream(url); } catch { result={error:'api_unavailable'}; }
-  upsertStream({key,ip:d.address,port:d.port,url,source:'sap',result,seq:streams.get(key)?.seq??streamSeq++});
+  upsertStream({key,ip:d.address,port:d.port,url,source:'sap',result,seq:streams.get(key)?.seq??streamSeq++,iface:sapIface});
   updateResultsTb();
   if (result.ok) log('ok','SAP probe OK: '+d.address+':'+d.port+(d.name?' "'+d.name+'"':''));
   else log('warn','SAP: no signal on '+d.address+':'+d.port);
@@ -731,6 +746,7 @@ async function toggleNetScan() {
   if (!protocols.length) { log('warn','Select at least one protocol'); return; }
 
   netScanning = true;
+  netIface = v('nNic');
   document.getElementById('netScanBtn').textContent = '■ Scanning…';
   document.getElementById('netProgBar').style.display = 'flex';
   document.getElementById('netProgFill').style.width = '0%';
@@ -754,7 +770,7 @@ function onNetScanResult(d) {
   const { ip, port, url, protocol, result } = d;
   const key = 'net:' + protocol + ':' + ip + ':' + port;
   log('ok', 'Found ' + protocol.toUpperCase() + ': ' + url);
-  upsertNetStream({ key, ip, port, url, protocol, source: 'net', result, seq: netStreamSeq++ });
+  upsertNetStream({ key, ip, port, url, protocol, source: 'net', result, seq: netStreamSeq++, iface: netIface });
 }
 
 function onNetScanProgress(d) {
@@ -1012,7 +1028,7 @@ function renderCard(s) {
     (isNosig && !isProbing ? '<div class="meta-nosig">✕ No signal' + (r.error === 'timeout' ? ' · timed out' : '') + ' </div>' : '') +
     (meta ? renderMeta(meta) : '') +
     '<div class="ca">' +
-      '<button class="cab launch" onclick="launchOne(\'' + esc(s.url) + '\')">' +
+      '<button class="cab launch" onclick="launchOne(\'' + esc(s.url) + '\',\'' + esc(s.iface||'') + '\')">' +
         '<svg viewBox="0 0 9 9" fill="none"><polygon points="0.5,0.5 8.5,4.5 0.5,8.5" fill="currentColor"/></svg>' +
         'Launch VLC' +
       '</button>' +
@@ -1079,7 +1095,7 @@ function renderNetCard(s) {
       (isNosig && !isProbing ? '<div class="meta-nosig">✕ No signal' + (r.error === 'timeout' ? ' · timed out' : '') + ' </div>' : '') +
       (meta ? renderMeta(meta) : '');
     actions =
-      '<button class="cab launch" onclick="launchOne(\'' + esc(s.url) + '\')">' +
+      '<button class="cab launch" onclick="launchOne(\'' + esc(s.url) + '\',\'' + esc(s.iface||'') + '\')">' +
         '<svg viewBox="0 0 9 9" fill="none"><polygon points="0.5,0.5 8.5,4.5 0.5,8.5" fill="currentColor"/></svg>Launch VLC</button>' +
       '<button class="cab" onclick="reProbeNet(\'' + esc(s.key) + '\')">' +
         '<svg viewBox="0 0 9 9" fill="none"><path d="M7.5 4.5A3 3 0 1 1 4.5 1.5M7.5 1.5v3H4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Re-probe</button>' +
@@ -1175,11 +1191,14 @@ async function probeAll() {
 }
 
 // ── Launch / copy ─────────────────────────────────────────────────────────────
-async function launchOne(url) {
-  log('info', 'Launching VLC → ' + url);
+async function launchOne(url, ifaceAddr) {
+  const miface = mifaceFor(ifaceAddr);
+  const isMulticast = /^(udp|rtp):\/\/@/i.test(url);
+  log('info', 'Launching VLC → ' + url + (miface && isMulticast ? '  [miface ' + miface + ']' : ''));
   try {
-    const r = await window.api.launchVlc(url);
-    if (r.error) log('err', 'VLC: ' + r.error); else log('ok', 'VLC launched');
+    const r = await window.api.launchVlc({ url, miface });
+    if (r.error) log('err', 'VLC: ' + r.error);
+    else log('ok', 'VLC launched' + (miface && isMulticast ? ' on ' + miface : ''));
   } catch { log('warn', 'VLC launch not available'); }
 }
 
@@ -1196,7 +1215,13 @@ function buildM3U(list, useIpName = true) {
     const name = nameStore[nk] || (useIpName ? ('CH' + String(i+1).padStart(3,'0') + ' - ' + s.ip + ':' + s.port) : s.url);
     const meta = parseProbe((s.result && s.result.raw) || null);
     const info = meta ? [meta.video?.codec, meta.video?.res, meta.video?.fps, meta.video?.br].filter(Boolean).join(' · ') : '';
-    m += '#EXTINF:-1,' + (info ? name + ' [' + info + ']' : name) + '\r\n' + s.url + '\r\n';
+    m += '#EXTINF:-1,' + (info ? name + ' [' + info + ']' : name) + '\r\n';
+    // Bind multicast joins to the discovery NIC so VLC plays from the right
+    // interface when the playlist is opened manually.
+    const miface = mifaceFor(s.iface);
+    const isMulticast = /^(udp|rtp):\/\/@/i.test(s.url);
+    if (miface && isMulticast) m += '#EXTVLCOPT:miface=' + miface + '\r\n';
+    m += s.url + '\r\n';
   });
   return m;
 }
@@ -1350,7 +1375,7 @@ function rotStep() {
   const pct = Math.round((rotIdx / rotList.length) * 100);
   document.getElementById('rotFill').style.width = pct + '%';
   document.getElementById('rotStatus').textContent = (rotIdx+1) + '/' + rotList.length + '  →  ' + (name ? '"' + name + '"  ' : '') + s.ip + ':' + s.port;
-  launchOne(s.url);
+  launchOne(s.url, s.iface);
   rotIdx++;
   rotTimer = setTimeout(rotStep, dwell);
 }
