@@ -72,6 +72,37 @@ if [[ $EUID -ne 0 ]]; then
   fi
 fi
 
+# ── detect architecture ────────────────────────────────────────────────────────
+detect_arch() {
+  local machine
+  machine="$(uname -m)"
+  case "$machine" in
+    x86_64)          echo "x64" ;;
+    aarch64|arm64)   echo "arm64" ;;
+    armv7l|armhf)    echo "armv7l" ;;
+    *)               echo "unknown:$machine" ;;
+  esac
+}
+
+# ── detect distro ──────────────────────────────────────────────────────────────
+detect_distro() {
+  if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+    echo "${ID:-unknown}"
+  else
+    echo "unknown"
+  fi
+}
+
+detect_distro_name() {
+  if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+    echo "${PRETTY_NAME:-${NAME:-Unknown Linux}}"
+  else
+    echo "Unknown Linux"
+  fi
+}
+
 # ── detect package manager ─────────────────────────────────────────────────────
 detect_pm() {
   if   command -v apt-get &>/dev/null; then echo "apt"
@@ -97,11 +128,62 @@ pm_install() {
   esac
 }
 
+# ── system detection ───────────────────────────────────────────────────────────
+SYS_ARCH="$(detect_arch)"
+SYS_DISTRO="$(detect_distro)"
+SYS_DISTRO_NAME="$(detect_distro_name)"
+SYS_PM="$(detect_pm)"
+
 # ── header ─────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}  Multicast Ring Analyzer — Linux Installer${RESET}"
 echo    "  ─────────────────────────────────────────────"
+echo -e "  Distro : $SYS_DISTRO_NAME"
+echo -e "  Arch   : $(uname -m) → $SYS_ARCH"
+echo -e "  Pkg Mgr: $SYS_PM"
+echo    "  ─────────────────────────────────────────────"
 $DRY_RUN && warn "Dry-run mode — no changes will be made"
+echo ""
+
+# ── compatibility check ────────────────────────────────────────────────────────
+step "Checking system compatibility…"
+
+# Block unsupported architectures
+case "$SYS_ARCH" in
+  x64|arm64)
+    info "Architecture $SYS_ARCH is supported" ;;
+  armv7l)
+    warn "armv7l (32-bit ARM) detected — no pre-built binary available"
+    warn "You can build from source: git clone https://github.com/$REPO && npm install && npm start"
+    exit 1 ;;
+  unknown:*)
+    warn "Unrecognised architecture: $(uname -m)"
+    warn "Only x86_64 and aarch64/arm64 are supported"
+    exit 1 ;;
+esac
+
+# Warn on untested distros (AppImage should still work, just flag it)
+case "$SYS_DISTRO" in
+  ubuntu|debian|linuxmint|pop|elementary|kali|raspbian)
+    info "Distro $SYS_DISTRO_NAME — fully supported" ;;
+  fedora|rhel|centos|rocky|almalinux)
+    info "Distro $SYS_DISTRO_NAME — supported (RPM-based)" ;;
+  arch|manjaro|endeavouros)
+    info "Distro $SYS_DISTRO_NAME — supported (Arch-based)" ;;
+  opensuse*|sles)
+    info "Distro $SYS_DISTRO_NAME — supported (openSUSE-based)" ;;
+  *)
+    warn "Distro '$SYS_DISTRO_NAME' is untested but should work via AppImage"
+    warn "If you hit issues, report them at: https://github.com/$REPO/issues" ;;
+esac
+
+# AppImage requires FUSE — check kernel version as a proxy
+KERNEL_VER="$(uname -r | cut -d. -f1)"
+if [[ "$KERNEL_VER" -lt 4 ]]; then
+  warn "Kernel $(uname -r) is very old — AppImage requires kernel 4.0+"
+  warn "Consider upgrading your OS"
+fi
+
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -208,8 +290,18 @@ step "Fetching latest release from GitHub…"
 
 RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null || echo '{}')"
 VERSION="$(echo "$RELEASE_JSON" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
-APPIMAGE_URL="$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep '\.AppImage' | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
-DEB_URL="$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep '\.deb' | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
+
+# Pick download URLs that match this machine's architecture
+# x64:   AppImage (no suffix or x64), deb amd64
+# arm64: AppImage arm64, deb arm64
+if [[ "$SYS_ARCH" == "arm64" ]]; then
+  APPIMAGE_URL="$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep '\.AppImage' | grep -i 'arm64\|aarch64' | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
+  DEB_URL="$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep '\.deb' | grep -i 'arm64\|aarch64' | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
+else
+  # x64 — exclude arm64 files
+  APPIMAGE_URL="$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep '\.AppImage' | grep -iv 'arm64\|aarch64\|armv7' | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
+  DEB_URL="$(echo "$RELEASE_JSON" | grep '"browser_download_url"' | grep '\.deb' | grep -iv 'arm64\|aarch64\|armv7' | head -1 | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')"
+fi
 
 if [[ -z "$VERSION" ]]; then
   echo ""
@@ -232,18 +324,24 @@ fi
 
 if [[ -z "$APPIMAGE_URL" && -z "$DEB_URL" ]]; then
   echo ""
-  echo -e "${RED}  ✘ Release $VERSION exists but has no downloadable files attached yet.${RESET}"
+  echo -e "${RED}  ✘ No $SYS_ARCH download found in release $VERSION.${RESET}"
   echo ""
-  echo "  The build may still be in progress. Check:"
-  echo "  https://github.com/$REPO/actions"
+  echo "  This means either:"
+  echo "    • The build for $SYS_ARCH is still in progress (~5 min)"
+  echo "    • The $SYS_ARCH build failed"
+  echo ""
+  echo "  Check build status : https://github.com/$REPO/actions"
+  echo "  Releases page      : https://github.com/$REPO/releases"
   echo ""
   echo "  Try again in a few minutes, or install from source:"
-  echo "  git clone git@github.com:$REPO.git && cd $(basename $REPO) && npm install && npm start"
+  echo "    git clone git@github.com:$REPO.git"
+  echo "    cd $(basename $REPO) && npm install && npm start"
   echo ""
   exit 1
 fi
 
 info "Latest version : $VERSION"
+info "Architecture   : $SYS_ARCH"
 
 # Check currently installed version
 CURRENT_VERSION=""
