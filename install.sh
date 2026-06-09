@@ -266,18 +266,27 @@ if ! $SKIP_DEPS; then
     command -v vlc &>/dev/null && info "vlc         installed" || warn "VLC still not found — stream playback will not work"
   fi
 
-  # ── FUSE (required to run AppImage) ────────────────────────────────────────
-  if command -v fusermount &>/dev/null || command -v fusermount3 &>/dev/null; then
-    info "fuse        found"
+  # ── libfuse2 (required to run AppImage) ────────────────────────────────────
+  # AppImages need libfuse.so.2 specifically. libfuse3 / fusermount3 — which
+  # ships by default on Ubuntu 22.04+ — does NOT satisfy this, so we check for
+  # the actual v2 library rather than the presence of any fusermount binary.
+  if ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
+    info "libfuse2    found"
   else
-    warn "FUSE not found — installing…"
+    warn "libfuse2 not found — AppImages need it (libfuse3 alone won't work). Installing…"
     pm="$(detect_pm)"
     case "$pm" in
-      apt)    pm_install fuse || pm_install fuse2 || pm_install libfuse2 ;;
-      dnf|yum) pm_install fuse ;;
+      apt)    run $SUDO apt-get update -qq; pm_install libfuse2 || pm_install libfuse2t64 || pm_install fuse ;;
+      dnf|yum) pm_install fuse-libs || pm_install fuse ;;
       pacman) pm_install fuse2 ;;
-      *)      warn "Install fuse manually for AppImage support" ;;
+      zypper) pm_install libfuse2 || pm_install fuse ;;
+      *)      warn "Install libfuse2 manually for AppImage support" ;;
     esac
+    if ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
+      info "libfuse2    installed"
+    else
+      warn "libfuse2 still missing — the app can still run with: <AppImage> --appimage-extract-and-run"
+    fi
   fi
 
   echo ""
